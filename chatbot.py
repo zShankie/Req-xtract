@@ -5,6 +5,8 @@ import spacy
 import nltk
 import pandas as pd
 import streamlit as st
+import torch
+from transformers import DistilBertTokenizer, DistilBertForSequenceClassification
 from nltk.tokenize import sent_tokenize
 from datetime import datetime
 import base64
@@ -20,204 +22,91 @@ def load_spacy_model():
     try:
         return spacy.load("en_core_web_sm")
     except:
-        # If model isn't downloaded, download it
         import subprocess
         subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"])
         return spacy.load("en_core_web_sm")
 
+# Load the fine-tuned model and tokenizer
+@st.cache_resource
+def load_model():
+    model_path = "fine_tuned_distilbert"
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    tokenizer = DistilBertTokenizer.from_pretrained(model_path)
+    model = DistilBertForSequenceClassification.from_pretrained(model_path).to(device)
+    model.eval()
+    return tokenizer, model, device
+
 class RequirementsExtractor:
     def __init__(self):
-        self.pdf_text = None
         self.extracted_requirements = []
         download_nltk_data()
         self.nlp = load_spacy_model()
-        
+        self.tokenizer, self.model, self.device = load_model()
+
     def extract_text_from_pdf(self, pdf_file):
-        """Extract text from a PDF file."""
         reader = PyPDF2.PdfReader(pdf_file)
         text = ""
-        total_pages = len(reader.pages)
-        
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        for page_num in range(total_pages):
-            status_text.text(f"Processing page {page_num+1}/{total_pages}...")
-            text += reader.pages[page_num].extract_text()
-            progress_bar.progress((page_num + 1) / total_pages)
-            
-        status_text.text(f"Successfully extracted {len(text)} characters from {total_pages} pages.")
+        for page in reader.pages:
+            text += page.extract_text() or ""
         return text
 
     def identify_requirements(self, text):
-        """Identify requirements in the extracted text."""
-        st.info("Analyzing text for requirements...")
-        
-        # Split text into sentences
         sentences = sent_tokenize(text)
-        st.text(f"Found {len(sentences)} sentences to analyze.")
-        
         requirements = []
-        
-        # Requirement patterns and indicators
-        requirement_indicators = [
-            r"(?i).*\b(shall|must|should|will|need to|has to|requires|required to)\b.*",
-            r"(?i).*\b(necessary|mandatory|essential|important|critical)\b.*",
-            r"(?i).*\b(system|application|platform|software|solution|user)\b.*\b(shall|must|should|will)\b.*",
-            r"(?i).*\b(functionality|feature|capability)\b.*",
-            r"(?i).*\b(ability to|enable|allow)\b.*",
+        requirement_patterns = [
+            r"(?i).*(shall|must|should|will|need to|has to|requires|required to).*",
+            r"(?i).*(necessary|mandatory|essential|important|critical).*",
         ]
         
-        # Analyze each sentence
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        for i, sentence in enumerate(sentences):
-            if i % 10 == 0:  # Update status less frequently to improve performance
-                status_text.text(f"Analyzed {i}/{len(sentences)} sentences...")
-                progress_bar.progress(min((i + 1) / len(sentences), 1.0))
-                
-            # Clean and normalize sentence
-            clean_sentence = sentence.strip()
-            
-            # Skip very short sentences
-            if len(clean_sentence.split()) < 3:
+        for sentence in sentences:
+            if len(sentence.split()) < 3:
                 continue
-                
-            # Check if the sentence matches any requirement pattern
-            is_requirement = False
-            for pattern in requirement_indicators:
-                if re.match(pattern, clean_sentence):
-                    is_requirement = True
-                    break
-            
-            if is_requirement:
-                # Use spaCy for additional filtering
-                doc = self.nlp(clean_sentence)
-                
-                # Check for key verbs that indicate requirements
-                has_key_verbs = any(token.lemma_ in ["shall", "must", "should", "need", "require", "provide", "support", "allow", "enable"] 
-                                for token in doc)
-                
-                if has_key_verbs:
-                    requirements.append(clean_sentence)
+            if any(re.match(pattern, sentence) for pattern in requirement_patterns):
+                requirements.append(sentence)
         
-        status_text.text(f"Found {len(requirements)} potential requirements.")
         return requirements
-
-    def create_download_link(self, requirements, filename="requirements.txt"):
-        """Create a download link for the requirements text file."""
-        content = "# EXTRACTED REQUIREMENTS\n"
-        content += f"# Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    
+    def predict_requirement(self, text):
+        encoding = self.tokenizer(text, truncation=True, padding="max_length", max_length=512, return_tensors="pt")
+        input_ids = encoding["input_ids"].to(self.device)
+        attention_mask = encoding["attention_mask"].to(self.device)
         
-        for i, req in enumerate(requirements, 1):
-            content += f"REQ-{i:03d}: {req}\n\n"
+        with torch.no_grad():
+            outputs = self.model(input_ids, attention_mask=attention_mask)
+            logits = outputs.logits
+            prediction = torch.argmax(logits, dim=1).item()
         
-        b64 = base64.b64encode(content.encode()).decode()
-        href = f'<a href="data:file/txt;base64,{b64}" download="{filename}">Download Requirements (.txt)</a>'
-        return href
-
-    def create_download_link_csv(self, requirements, filename="requirements.csv"):
-        """Create a download link for the requirements CSV file."""
-        df = pd.DataFrame({
-            'ID': [f"REQ-{i:03d}" for i in range(1, len(requirements) + 1)],
-            'Requirement': requirements,
-            'Priority': ['Medium'] * len(requirements),
-            'Status': ['New'] * len(requirements)
-        })
-        
+        return "FR" if prediction == 0 else "NFR"
+    
+    def create_download_link_csv(self, df, filename="classified_requirements.csv"):
         csv = df.to_csv(index=False)
         b64 = base64.b64encode(csv.encode()).decode()
-        href = f'<a href="data:file/csv;base64,{b64}" download="{filename}">Download Requirements (.csv)</a>'
+        href = f'<a href="data:file/csv;base64,{b64}" download="{filename}">Download Classified Requirements (.csv)</a>'
         return href
 
 def main():
-    st.set_page_config(
-        page_title="Requirements Extraction Tool",
-        page_icon="📝",
-        layout="wide"
-    )
+    st.set_page_config(page_title="Requirements Extraction & Classification", page_icon="📝", layout="wide")
+    st.title("📝 Requirements Extraction & Classification Tool")
     
-    st.title("📝 Requirements Extraction Tool")
-    st.markdown("""
-    This application extracts requirements from PDF documents using natural language processing.
-    Upload a PDF file to get started.
-    """)
-    
-    # Initialize session state variables if they don't exist
-    if 'pdf_text' not in st.session_state:
-        st.session_state.pdf_text = None
-    if 'requirements' not in st.session_state:
-        st.session_state.requirements = []
-    if 'file_name' not in st.session_state:
-        st.session_state.file_name = None
-    
-    # Sidebar
-    st.sidebar.header("Options")
-    
-    # File upload section
-    uploaded_file = st.sidebar.file_uploader("Upload PDF Document", type=["pdf"])
-    
+    uploaded_files = st.sidebar.file_uploader("Upload PDF Documents", type=["pdf"], accept_multiple_files=True)
     extractor = RequirementsExtractor()
     
-    col1, col2 = st.columns(2)
-    
-    # Process PDF button
-    if uploaded_file is not None:
-        if st.sidebar.button("Extract Requirements"):
-            with st.spinner("Processing PDF..."):
-                st.session_state.file_name = uploaded_file.name
-                st.session_state.pdf_text = extractor.extract_text_from_pdf(uploaded_file)
-                st.session_state.requirements = extractor.identify_requirements(st.session_state.pdf_text)
-    
-    # Display input text
-    with col1:
-        st.header("Document Text")
-        if st.session_state.pdf_text:
-            st.text_area("Extracted Text (Preview)", st.session_state.pdf_text[:5000] + "..." if len(st.session_state.pdf_text) > 5000 else st.session_state.pdf_text, height=400)
-            st.caption(f"Total text length: {len(st.session_state.pdf_text)} characters")
-        else:
-            st.info("Upload a PDF and click 'Extract Requirements' to view the document text here.")
+    if uploaded_files and st.sidebar.button("Extract & Classify Requirements"):
+        with st.spinner("Processing PDFs..."):
+            all_requirements = []
             
-    # Display requirements
-    with col2:
-        st.header("Extracted Requirements")
-        if st.session_state.requirements:
-            df = pd.DataFrame({
-                'ID': [f"REQ-{i:03d}" for i in range(1, len(st.session_state.requirements) + 1)],
-                'Requirement': st.session_state.requirements
-            })
+            for file in uploaded_files:
+                text = extractor.extract_text_from_pdf(file)
+                requirements = extractor.identify_requirements(text)
+                
+                all_requirements.extend(
+                    [{"Requirement Text": req, "Predicted Type": extractor.predict_requirement(req), "Source File": file.name} for req in requirements]
+                )
+            
+            df = pd.DataFrame(all_requirements)
+            st.success(f"Extracted and classified {len(df)} requirements from {len(uploaded_files)} files!")
             st.dataframe(df, height=400)
-            st.success(f"Found {len(st.session_state.requirements)} potential requirements!")
+            st.markdown(extractor.create_download_link_csv(df), unsafe_allow_html=True)
             
-            # Download links
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            base_filename = st.session_state.file_name.replace('.pdf', '') if st.session_state.file_name else "requirements"
-            txt_filename = f"{base_filename}_requirements_{timestamp}.txt"
-            csv_filename = f"{base_filename}_requirements_{timestamp}.csv"
-            
-            st.markdown(extractor.create_download_link(st.session_state.requirements, txt_filename), unsafe_allow_html=True)
-            st.markdown(extractor.create_download_link_csv(st.session_state.requirements, csv_filename), unsafe_allow_html=True)
-        else:
-            st.info("Extracted requirements will appear here after processing.")
-    
-    # Additional information
-    st.markdown("---")
-    st.header("How It Works")
-    st.markdown("""
-    This tool identifies requirements by:
-    1. Extracting text from your uploaded PDF
-    2. Breaking the text into sentences
-    3. Analyzing each sentence using NLP techniques
-    4. Identifying sentences that match requirement patterns
-    5. Filtering based on linguistic indicators of requirements
-    
-    The tool looks for:
-    - Modal verbs: shall, must, should, will
-    - Action phrases: need to, required to, has to
-    - Descriptors: necessary, mandatory, essential
-    - Subject+modal: "system shall", "user must", etc.
-    """)
-
 if __name__ == "__main__":
     main()
