@@ -16,6 +16,7 @@ from docx import Document
 @st.cache_resource
 def download_nltk_data():
     nltk.download('punkt', quiet=True)
+    nltk.download('punkt_tab', quiet=True)
 
 @st.cache_resource
 def load_spacy_model():
