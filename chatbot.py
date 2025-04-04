@@ -15,6 +15,7 @@ import base64
 @st.cache_resource
 def download_nltk_data():
     nltk.download('punkt', quiet=True)
+    nltk.download('punkt_tab', quiet=True)
 
 # Load spaCy model
 @st.cache_resource
