@@ -40,7 +40,7 @@ streamlit run app.py
 - 📂 Upload multiple MoM PDF files.
 - 🔎 The tool extracts relevant sections and classifies requirements.
 - 📑 The final IEEE-standard SRS document is generated in seconds.
-
+![Req-xtract Demo](./docs/demo2.png)
 ## 📊 Comparative Study
 
 | 🛠️ Method | ⏳ Time Required |
