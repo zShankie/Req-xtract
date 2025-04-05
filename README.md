@@ -17,7 +17,7 @@ Req-Xtract is an 🤖 AI-powered tool designed to automate the extraction and cl
 
 If you're eager to experience how **Req-Xtract** can accelerate your SRS creation, try it out below! 🚀
 
-👉 [**Try Req-Xtract Now**](https://link-to-your-live-demo-or-webapp.com)
+👉 [**Try Req-Xtract Now**](https://huggingface.co/spaces/div3102/Req-xtract)
 
 
 ## ⚙️ Installation
