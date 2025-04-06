@@ -1,4 +1,5 @@
 
+
 # 🚀 Req-Xtract
 ![Req-xtract Demo](./docs/demo.png)
 Req-Xtract is an 🤖 AI-powered tool designed to automate the extraction and classification of software requirements from Meeting Minutes (MoM) PDFs. It significantly accelerates the 📜 Software Requirements Specification (SRS) creation process using a fine-tuned DistilBERT model and Groq for refinement.
@@ -11,6 +12,13 @@ Req-Xtract is an 🤖 AI-powered tool designed to automate the extraction and cl
 - 🔍 Enhances FR/NFR refinement using **Groq**.
 - 🎨 Utilizes **Streamlit** for an interactive and user-friendly interface.
 - 📊 Includes a **comparative study** showcasing the efficiency of AI-assisted SRS creation versus traditional methods.
+
+## 🎯 Wanna Try?
+
+If you're eager to experience how **Req-Xtract** can accelerate your SRS creation, try it out below! 🚀
+
+👉 [**Try Req-Xtract Now**](https://huggingface.co/spaces/div3102/Req-xtract)
+
 
 ## ⚙️ Installation
 
